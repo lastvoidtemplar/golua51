@@ -59,10 +59,10 @@ func PrintBinaryChunkHeader(header BinaryChunkHeader) {
 func PrintBinaryChunkHeaderFunctionBlock(functionBlock BinaryChunkFunctionBlock, header BinaryChunkHeader, pos int, functionLevel int, functionInd int) int {
 	fmt.Printf("%06X\t\t\t\t** function [%d] definition (level %d)\n", pos, functionInd, functionLevel)
 	fmt.Println("\t\t\t\t** start of function **")
-	pos = PrintBinaryCHunckString(functionBlock.SourceName, header, pos)
+	pos = PrintBinaryChunkString(functionBlock.SourceName, header, pos)
 	fmt.Println("\t\t\t\tsource name: ", string(functionBlock.SourceName.Data))
-	pos = PrintBinaryChunckInt(functionBlock.LineDefined, fmt.Sprintf("line defined (%d)", functionBlock.LineDefined), header, pos)
-	pos = PrintBinaryChunckInt(functionBlock.LastLineDefined, fmt.Sprintf("last line defined (%d)", functionBlock.LastLineDefined), header, pos)
+	pos = PrintBinaryChunkInt(functionBlock.LineDefined, fmt.Sprintf("line defined (%d)", functionBlock.LineDefined), header, pos)
+	pos = PrintBinaryChunkInt(functionBlock.LastLineDefined, fmt.Sprintf("last line defined (%d)", functionBlock.LastLineDefined), header, pos)
 
 	fmt.Printf("%06X\t%02X\t\t\tnups (%d)\n", pos, functionBlock.UpvaluesCount, functionBlock.UpvaluesCount)
 	fmt.Printf("%06X\t%02X\t\t\tnumparams (%d)\n", pos+1, functionBlock.ParametersCount, functionBlock.ParametersCount)
@@ -70,10 +70,11 @@ func PrintBinaryChunkHeaderFunctionBlock(functionBlock BinaryChunkFunctionBlock,
 	fmt.Printf("%06X\t%02X\t\t\tmaxstacksize (%d)\n", pos+3, functionBlock.MaximumStackSize, functionBlock.MaximumStackSize)
 	pos += 4
 
+	pos = PrintInstructionList(functionBlock.InstructionList, header, pos)
 	return pos
 }
 
-func PrintBinaryChunckSizet(n uint64, note string, header BinaryChunkHeader, pos int) int {
+func PrintBinaryChunkSizet(n uint64, note string, header BinaryChunkHeader, pos int) int {
 	// TODO: add big endian display
 	fmt.Printf("%06X\t", pos)
 	for i := 0; i < int(header.SizetSize); i++ {
@@ -84,7 +85,7 @@ func PrintBinaryChunckSizet(n uint64, note string, header BinaryChunkHeader, pos
 	return pos + int(header.SizetSize)
 }
 
-func PrintBinaryChunckInt(n int64, note string, header BinaryChunkHeader, pos int) int {
+func PrintBinaryChunkInt(n int64, note string, header BinaryChunkHeader, pos int) int {
 	// TODO: add big endian display
 	fmt.Printf("%06X\t", pos)
 	for i := 0; i < int(header.IntSize); i++ {
@@ -95,8 +96,8 @@ func PrintBinaryChunckInt(n int64, note string, header BinaryChunkHeader, pos in
 	return pos + int(header.IntSize)
 }
 
-func PrintBinaryCHunckString(str BinaryChunkString, header BinaryChunkHeader, pos int) int {
-	pos = PrintBinaryChunckSizet(str.Size, fmt.Sprintf("string size (%d)", str.Size), header, pos)
+func PrintBinaryChunkString(str BinaryChunkString, header BinaryChunkHeader, pos int) int {
+	pos = PrintBinaryChunkSizet(str.Size, fmt.Sprintf("string size (%d)", str.Size), header, pos)
 	const bytesOnOneline = 8
 	data := str.Data
 	for i := 0; i < len(data); i += bytesOnOneline {
@@ -111,6 +112,74 @@ func PrintBinaryCHunckString(str BinaryChunkString, header BinaryChunkHeader, po
 			fmt.Printf("%06X\t%X\t\t\"%s\"\n", pos, data[i:endBound], display)
 		}
 		pos += bytesOnOneline
+	}
+	return pos
+}
+
+var InstructionNames = []string{
+	"move",      //0
+	"loadk",     //1
+	"loadbool",  //2
+	"loadnil",   //3
+	"getupval",  //4
+	"getglobal", //5
+	"gettable",  //6
+	"setglobal", //7
+	"setupval",  //8
+	"settable",  //9
+	"newtable",  //10
+	"self",      //11
+	"add",       //12
+	"sub",       //13
+	"mul",       //14
+	"div",       //15
+	"mod",       //16
+	"pow",       //17
+	"unm",       //18
+	"not",       //19
+	"len",       //20
+	"concat",    //21
+	"jmp",       //22
+	"eq",        //23
+	"lt",        //24,
+	"le",        //25
+	"test",      //26
+	"testset",   //27
+	"call",      //28
+	"tailcall",  //29
+	"return",    //30
+	"forloop",   //31
+	"forprep",   //32
+	"tforloop",  //33
+	"setlist",   //34
+	"close",     //35
+	"closure",   //36
+	"vararg",    // 37
+}
+
+func PrintBinaryChunkInstruction(ins uint32, header BinaryChunkHeader, pos int, insInd int) int {
+	// TODO: add big endian display
+	fmt.Printf("%06X\t", pos)
+	for i := 0; i < int(header.IntSize); i++ {
+		b := (int(ins) >> (8 * i)) & ((1 << 8) - 1)
+		fmt.Printf("%02X", b)
+	}
+
+	//TODO diff instruction types iABC, iABx, iAsBx
+	opcode := int(ins & ((1 << 6) - 1))
+	a := int(((((1 << 8) - 1) << 6) & ins) >> 6)
+	b := int(((((1 << 18) - 1) << 14) & ins) >> 14)
+	fmt.Printf("\t\t[%d] %s %d %d\n", insInd, InstructionNames[opcode], a, b)
+
+	return pos + int(header.InstructionSize)
+}
+
+func PrintInstructionList(instructions InstructionList, header BinaryChunkHeader, pos int) int {
+	fmt.Println("\t\t\t\t* code:")
+	pos = PrintBinaryChunkInt(instructions.Size, fmt.Sprintf("sizecode (%d)", instructions.Size), header, pos)
+
+	for i, v := range instructions.Instructions {
+		pos = PrintBinaryChunkInstruction(v, header, pos, i+1)
 	}
 	return pos
 }

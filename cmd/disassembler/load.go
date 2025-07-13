@@ -139,7 +139,7 @@ func LoadBinaryChunkString(r io.Reader, header BinaryChunkHeader) (BinaryChunkSt
 	}
 
 	if n < int(size) {
-		return BinaryChunkString{}, fmt.Errorf("invalid length for a string data: got %d, expected %d", n, size)
+		return BinaryChunkString{}, fmt.Errorf("invalid read bytes for a string data: got %d, expected %d", n, size)
 	}
 
 	if buf[size-1] != 0 {
@@ -191,19 +191,19 @@ func LoadBinaryChunkFunctionBlock(r io.Reader, header BinaryChunkHeader) (Binary
 
 	sourceName, err := LoadBinaryChunkString(r, header)
 	if err != nil {
-		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load source name for function block: %w", err)
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load source name for a function block: %w", err)
 	}
 	functionBlock.SourceName = sourceName
 
 	lineDefined, err := LoadBinaryChunkInt(r, header)
 	if err != nil {
-		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load line defined for function block: %w", err)
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load line defined for a function block: %w", err)
 	}
 	functionBlock.LineDefined = lineDefined
 
 	lastLineDefined, err := LoadBinaryChunkInt(r, header)
 	if err != nil {
-		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load last line defined for function block: %w", err)
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load last line defined for a function block: %w", err)
 	}
 	functionBlock.LastLineDefined = lastLineDefined
 
@@ -211,17 +211,80 @@ func LoadBinaryChunkFunctionBlock(r io.Reader, header BinaryChunkHeader) (Binary
 	n, err := r.Read(buf[:])
 
 	if err != nil {
-		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load upvalues count, parameter count, is_vararg and maximum stack size for function block: %w", err)
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load upvalues count, parameter count, is_vararg and maximum stack size for a function block: %w", err)
 	}
 
 	if n < 4 {
 		return BinaryChunkFunctionBlock{},
-			fmt.Errorf("failed to load upvalues count, parameter count, is_vararg and maximum stack size for function block, invalid length: got %d, expected %d", n, 4)
+			fmt.Errorf("failed to load upvalues count, parameter count, is_vararg and maximum stack size for a function block, invalid length: got %d, expected %d", n, 4)
 	}
 	functionBlock.UpvaluesCount = buf[0]
 	functionBlock.ParametersCount = buf[1]
 	functionBlock.IsVararg = buf[2]
 	functionBlock.MaximumStackSize = buf[3]
 
+	instructions, err := LoadBinaryChunkInstructionList(r, header)
+
+	if err != nil {
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load instruction list for a function block: %w", err)
+	}
+	functionBlock.InstructionList = instructions
+
 	return functionBlock, nil
+}
+
+func LoadBinaryChunkInstruction(r io.Reader, header BinaryChunkHeader) (uint32, error) {
+	const bigEndian = 0
+	const littleEndian = 1
+
+	buf := make([]byte, header.InstructionSize)
+	n, err := r.Read(buf)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to load size_t: %w", err)
+	}
+
+	if n < int(header.InstructionSize) {
+		return 0, fmt.Errorf("invalid size_t size: got %d, expected %d", n, header.InstructionSize)
+	}
+
+	var result uint32
+	b := 0
+	switch header.Endianness {
+	case bigEndian:
+		for i := n; i >= 0; i-- {
+			result = result | (uint32(buf[i]) << b)
+			b += 8
+		}
+	case littleEndian:
+		for i := 0; i < n; i++ {
+			result = result | (uint32(buf[i]) << b)
+			b += 8
+		}
+	}
+
+	return result, nil
+}
+
+func LoadBinaryChunkInstructionList(r io.Reader, header BinaryChunkHeader) (InstructionList, error) {
+	instructions := InstructionList{}
+
+	size, err := LoadBinaryChunkInt(r, header)
+	if err != nil {
+		return InstructionList{}, fmt.Errorf("failed to load size for a instruction list: %w", err)
+	}
+	instructions.Size = size
+
+	list := make([]uint32, size)
+	for i := 0; i < int(size); i++ {
+		ins, err := LoadBinaryChunkInstruction(r, header)
+		if err != nil {
+			return InstructionList{}, fmt.Errorf("failed to load virtual machine instruction (ind=%d): %w", i, err)
+		}
+
+		list[i] = ins
+	}
+	instructions.Instructions = list
+
+	return instructions, nil
 }
