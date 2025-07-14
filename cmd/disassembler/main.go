@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 )
 
 func main() {
 	args := os.Args[1:]
+	// args = append(args, "/home/deyan/Programming/CLI/golua51/lua/file1.out")
 	for _, arg := range args {
 		r, err := os.Open(arg)
 
@@ -71,6 +73,8 @@ func PrintBinaryChunkHeaderFunctionBlock(functionBlock BinaryChunkFunctionBlock,
 	pos += 4
 
 	pos = PrintInstructionList(functionBlock.InstructionList, header, pos)
+	pos = PrintConstantList(functionBlock.ConstantList, header, pos)
+	pos = PrintFunctionPrototypeList(functionBlock.FunctionPrototypeList, header, pos, functionLevel)
 	return pos
 }
 
@@ -104,13 +108,21 @@ func PrintBinaryChunkString(str BinaryChunkString, header BinaryChunkHeader, pos
 		endBound := 0
 		if i+bytesOnOneline < int(str.Size) {
 			endBound = i + bytesOnOneline
-			display := string(data[i:endBound])
-			fmt.Printf("%06X\t%X\t\"%s\"\n", pos, data[i:endBound], display)
 		} else {
 			endBound = len(data)
-			display := string(data[i:endBound])
-			fmt.Printf("%06X\t%X\t\t\"%s\"\n", pos, data[i:endBound], display)
 		}
+		display := string(data[i:endBound])
+
+		fmt.Printf("%06X\t%02X", pos, data[i:endBound])
+		t := 2 * (endBound - i) / (bytesOnOneline)
+
+		const maxTabs = 3
+
+		for j := 0; j < maxTabs-t; j++ {
+			fmt.Printf("\t")
+		}
+
+		fmt.Printf("\"%s\"\n", display)
 		pos += bytesOnOneline
 	}
 	return pos
@@ -180,6 +192,84 @@ func PrintInstructionList(instructions InstructionList, header BinaryChunkHeader
 
 	for i, v := range instructions.Instructions {
 		pos = PrintBinaryChunkInstruction(v, header, pos, i+1)
+	}
+	return pos
+}
+
+func PrintBinaryChunkLuaNumber(n uint64, header BinaryChunkHeader, pos int, conInd int) int {
+	// TODO: add big endian display
+	fmt.Printf("%06X\t", pos)
+	for i := 0; i < int(header.LuaNumberSize); i++ {
+		b := (n >> (8 * i)) & ((1 << 8) - 1)
+		fmt.Printf("%02X", b)
+	}
+
+	const float = 0
+	const integral = 1
+
+	fmt.Printf("\tconst [%d]: ", conInd)
+
+	switch header.IntegralFlag {
+	case float:
+		switch header.LuaNumberSize {
+		case 4:
+			fmt.Printf("(%f)\n", math.Float32frombits(uint32(n)))
+		case 8:
+			fmt.Printf("(%f)\n", math.Float64frombits(n))
+		}
+	case integral:
+		fmt.Printf("(%d)\n", n)
+	}
+
+	return pos + int(header.LuaNumberSize)
+}
+
+var constTypeString = [5]string{"nil", "bool", "", "number", "string"}
+var constBoolString = [2]string{"false", "true"}
+
+func PrintBinaryChunkConstant(con BinaryChunkConstant, header BinaryChunkHeader, pos int, conInd int) int {
+	fmt.Printf("%06X\t%02X\t\t\tconst type %d (%s)\n", pos, con.Type, con.Type, constTypeString[con.Type])
+	pos++
+
+	switch con.Type {
+	case LUA_TNIL:
+		fmt.Printf("\t\t\t\tconst [%d]: (nil)\n", conInd)
+	case LUA_TBOOLEAN:
+		if b, ok := con.Value.(byte); ok && b < 2 {
+			fmt.Printf("%06X\t%02X\t\t\tconst [%d]: (%s)\n", pos, b, conInd, constBoolString[b])
+			pos++
+		}
+	case LUA_TNUMBER:
+		if num, ok := con.Value.(uint64); ok {
+			pos = PrintBinaryChunkLuaNumber(num, header, pos, conInd)
+		}
+	case LUA_TSTRING:
+		if str, ok := con.Value.(BinaryChunkString); ok {
+			pos = PrintBinaryChunkString(str, header, pos)
+			fmt.Printf("\t\t\t\tconst [%d]: \"%s\"\n", conInd, string(str.Data))
+		}
+	}
+
+	return pos
+}
+
+func PrintConstantList(constants ConstantList, header BinaryChunkHeader, pos int) int {
+	fmt.Println("\t\t\t\t* constants:")
+	pos = PrintBinaryChunkInt(constants.Size, fmt.Sprintf("sizek (%d)", constants.Size), header, pos)
+
+	for i, v := range constants.Constants {
+		pos = PrintBinaryChunkConstant(v, header, pos, i)
+	}
+	return pos
+}
+
+func PrintFunctionPrototypeList(functionBlocks FunctionPrototypeList, header BinaryChunkHeader, pos int, functionLevel int) int {
+	fmt.Println("\t\t\t\t* functions:")
+	pos = PrintBinaryChunkInt(functionBlocks.Size, fmt.Sprintf("sizep (%d)", functionBlocks.Size), header, pos)
+
+	for i, v := range functionBlocks.FunctionPrototypes {
+		fmt.Println()
+		pos = PrintBinaryChunkHeaderFunctionBlock(v, header, pos, functionLevel+1, i)
 	}
 	return pos
 }

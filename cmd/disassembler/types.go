@@ -59,14 +59,14 @@ const (
 	LUA_TSTRING  BinaryChunkConstantType = 4
 )
 
-type BinaryChunConstant struct {
+type BinaryChunkConstant struct {
 	Type  BinaryChunkConstantType
 	Value any
 }
 
 type ConstantList struct {
 	Size      int64 // int
-	Constants []BinaryChunConstant
+	Constants []BinaryChunkConstant
 }
 
 type FunctionPrototypeList struct {

@@ -131,6 +131,10 @@ func LoadBinaryChunkString(r io.Reader, header BinaryChunkHeader) (BinaryChunkSt
 		return BinaryChunkString{}, fmt.Errorf("failed to load string size: %w", err)
 	}
 
+	if size == 0 {
+		return BinaryChunkString{Size: 0, Data: make([]byte, 0)}, nil
+	}
+
 	buf := make([]byte, size)
 	n, err := r.Read(buf)
 
@@ -224,11 +228,22 @@ func LoadBinaryChunkFunctionBlock(r io.Reader, header BinaryChunkHeader) (Binary
 	functionBlock.MaximumStackSize = buf[3]
 
 	instructions, err := LoadBinaryChunkInstructionList(r, header)
-
 	if err != nil {
 		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load instruction list for a function block: %w", err)
 	}
 	functionBlock.InstructionList = instructions
+
+	constants, err := LoadBinaryChunkConstantList(r, header)
+	if err != nil {
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load constant list for a function block: %w", err)
+	}
+	functionBlock.ConstantList = constants
+
+	functionBlocks, err := LoadBinaryChunkFunctionPrototypeList(r, header)
+	if err != nil {
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load function prototype list for a function block: %w", err)
+	}
+	functionBlock.FunctionPrototypeList = functionBlocks
 
 	return functionBlock, nil
 }
@@ -271,7 +286,7 @@ func LoadBinaryChunkInstructionList(r io.Reader, header BinaryChunkHeader) (Inst
 
 	size, err := LoadBinaryChunkInt(r, header)
 	if err != nil {
-		return InstructionList{}, fmt.Errorf("failed to load size for a instruction list: %w", err)
+		return InstructionList{}, fmt.Errorf("failed to load a size for a instruction list: %w", err)
 	}
 	instructions.Size = size
 
@@ -279,7 +294,7 @@ func LoadBinaryChunkInstructionList(r io.Reader, header BinaryChunkHeader) (Inst
 	for i := 0; i < int(size); i++ {
 		ins, err := LoadBinaryChunkInstruction(r, header)
 		if err != nil {
-			return InstructionList{}, fmt.Errorf("failed to load virtual machine instruction (ind=%d): %w", i, err)
+			return InstructionList{}, fmt.Errorf("failed to load a virtual machine instruction (ind=%d): %w", i, err)
 		}
 
 		list[i] = ins
@@ -287,4 +302,138 @@ func LoadBinaryChunkInstructionList(r io.Reader, header BinaryChunkHeader) (Inst
 	instructions.Instructions = list
 
 	return instructions, nil
+}
+
+func LoadBinaryChunkLuaNumber(r io.Reader, header BinaryChunkHeader) (uint64, error) {
+	const bigEndian = 0
+	const littleEndian = 1
+
+	buf := make([]byte, header.LuaNumberSize)
+	n, err := r.Read(buf)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to load lua number: %w", err)
+	}
+
+	if n < int(header.LuaNumberSize) {
+		return 0, fmt.Errorf("invalid lua number size: got %d, expected %d", n, header.LuaNumberSize)
+	}
+
+	var bits uint64
+	b := 0
+	switch header.Endianness {
+	case bigEndian:
+		for i := n; i >= 0; i-- {
+			bits = bits | (uint64(buf[i]) << b)
+			b += 8
+		}
+	case littleEndian:
+		for i := 0; i < n; i++ {
+			bits = bits | (uint64(buf[i]) << b)
+			b += 8
+		}
+	}
+
+	return bits, nil
+}
+
+func LoadBinaryChunkConstant(r io.Reader, header BinaryChunkHeader) (BinaryChunkConstant, error) {
+	var buf [1]byte
+	n, err := r.Read(buf[:])
+
+	if err != nil {
+		return BinaryChunkConstant{}, fmt.Errorf("failed to load a constant type: %w", err)
+	}
+
+	if n < 1 {
+		return BinaryChunkConstant{}, fmt.Errorf("invalid read bytes for a constant type: got %d, expected %d", n, 1)
+	}
+
+	t := buf[0]
+
+	const tnil = 0
+	const tbool = 1
+	const tnumber = 3
+	const tstring = 4
+
+	switch t {
+	case tnil:
+		return BinaryChunkConstant{Type: LUA_TNIL, Value: nil}, nil
+	case tbool:
+		n, err = r.Read(buf[:])
+
+		if err != nil {
+			return BinaryChunkConstant{}, fmt.Errorf("failed to load a constant bool: %w", err)
+		}
+
+		if n < 1 {
+			return BinaryChunkConstant{}, fmt.Errorf("invalid read bytes for a constant bool: got %d, expected %d", n, 1)
+		}
+
+		return BinaryChunkConstant{Type: LUA_TBOOLEAN, Value: buf[0]}, nil
+	case tnumber:
+		num, err := LoadBinaryChunkLuaNumber(r, header)
+
+		if err != nil {
+			return BinaryChunkConstant{}, fmt.Errorf("failed to load a constant lua number: %w", err)
+		}
+
+		return BinaryChunkConstant{Type: LUA_TNUMBER, Value: num}, nil
+	case tstring:
+		str, err := LoadBinaryChunkString(r, header)
+
+		if err != nil {
+			return BinaryChunkConstant{}, fmt.Errorf("failed to load a constant string: %w", err)
+		}
+
+		return BinaryChunkConstant{Type: LUA_TSTRING, Value: str}, nil
+	default:
+		return BinaryChunkConstant{}, fmt.Errorf("invalid constant type: got %d, expected <= %d", t, 3)
+	}
+}
+
+func LoadBinaryChunkConstantList(r io.Reader, header BinaryChunkHeader) (ConstantList, error) {
+	constants := ConstantList{}
+
+	size, err := LoadBinaryChunkInt(r, header)
+	if err != nil {
+		return ConstantList{}, fmt.Errorf("failed to load size for a constant list: %w", err)
+	}
+	constants.Size = size
+
+	list := make([]BinaryChunkConstant, size)
+	for i := 0; i < int(size); i++ {
+		con, err := LoadBinaryChunkConstant(r, header)
+		if err != nil {
+			return ConstantList{}, fmt.Errorf("failed to load a constant (ind=%d): %w", i, err)
+		}
+
+		list[i] = con
+	}
+	constants.Constants = list
+
+	return constants, nil
+}
+
+func LoadBinaryChunkFunctionPrototypeList(r io.Reader, header BinaryChunkHeader) (FunctionPrototypeList, error) {
+	functionBlocks := FunctionPrototypeList{}
+
+	size, err := LoadBinaryChunkInt(r, header)
+	if err != nil {
+		return FunctionPrototypeList{}, fmt.Errorf("failed to load size for a function prototype list: %w", err)
+	}
+	functionBlocks.Size = size
+
+	list := make([]BinaryChunkFunctionBlock, size)
+	for i := 0; i < int(size); i++ {
+		fun, err := LoadBinaryChunkFunctionBlock(r, header)
+		if err != nil {
+			return FunctionPrototypeList{}, fmt.Errorf("failed to load a function prototype (ind=%d): %w", i, err)
+		}
+
+		list[i] = fun
+	}
+	functionBlocks.FunctionPrototypes = list
+
+	return functionBlocks, nil
 }
