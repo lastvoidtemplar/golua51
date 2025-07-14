@@ -245,6 +245,24 @@ func LoadBinaryChunkFunctionBlock(r io.Reader, header BinaryChunkHeader) (Binary
 	}
 	functionBlock.FunctionPrototypeList = functionBlocks
 
+	lines, err := LoadBinaryChunkSourceLinePositionList(r, header)
+	if err != nil {
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load source line position list for a function block: %w", err)
+	}
+	functionBlock.SourceLinePositionList = lines
+
+	locals, err := LoadBinaryChunkLocalList(r, header)
+	if err != nil {
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load local list for a function block: %w", err)
+	}
+	functionBlock.LocalList = locals
+
+	upvalues, err := LoadBinaryChunkUpvalueList(r, header)
+	if err != nil {
+		return BinaryChunkFunctionBlock{}, fmt.Errorf("failed to load upvalues list for a function block: %w", err)
+	}
+	functionBlock.UpvalueList = upvalues
+
 	return functionBlock, nil
 }
 
@@ -436,4 +454,87 @@ func LoadBinaryChunkFunctionPrototypeList(r io.Reader, header BinaryChunkHeader)
 	functionBlocks.FunctionPrototypes = list
 
 	return functionBlocks, nil
+}
+
+func LoadBinaryChunkSourceLinePositionList(r io.Reader, header BinaryChunkHeader) (SourceLinePositionList, error) {
+	lines := SourceLinePositionList{}
+
+	size, err := LoadBinaryChunkInt(r, header)
+	if err != nil {
+		return SourceLinePositionList{}, fmt.Errorf("failed to load size for a source line position list: %w", err)
+	}
+	lines.Size = size
+
+	list := make([]int64, size)
+	for i := 0; i < int(size); i++ {
+		line, err := LoadBinaryChunkInt(r, header)
+		if err != nil {
+			return SourceLinePositionList{}, fmt.Errorf("failed to load a source line position (ind=%d): %w", i, err)
+		}
+
+		list[i] = line
+	}
+	lines.SourceLinePositions = list
+
+	return lines, nil
+}
+
+func LoadBinaryChunkLocalList(r io.Reader, header BinaryChunkHeader) (LocalList, error) {
+	locals := LocalList{}
+
+	size, err := LoadBinaryChunkInt(r, header)
+	if err != nil {
+		return LocalList{}, fmt.Errorf("failed to load size for a local list: %w", err)
+	}
+	locals.Size = size
+
+	list := make([]BinaryChunkLocal, size)
+	for i := 0; i < int(size); i++ {
+		varname, err := LoadBinaryChunkString(r, header)
+		if err != nil {
+			return LocalList{}, fmt.Errorf("failed to load a local varname of local (ind=%d): %w", i, err)
+		}
+
+		start, err := LoadBinaryChunkInt(r, header)
+		if err != nil {
+			return LocalList{}, fmt.Errorf("failed to load a start of scope of local (ind=%d): %w", i, err)
+		}
+
+		end, err := LoadBinaryChunkInt(r, header)
+		if err != nil {
+			return LocalList{}, fmt.Errorf("failed to load a end of scope of local (ind=%d): %w", i, err)
+		}
+
+		list[i] = BinaryChunkLocal{
+			VariableName:       varname,
+			StartVariableScope: start,
+			EndVariableScope:   end,
+		}
+	}
+	locals.Locals = list
+
+	return locals, nil
+}
+
+func LoadBinaryChunkUpvalueList(r io.Reader, header BinaryChunkHeader) (UpvalueList, error) {
+	upvalues := UpvalueList{}
+
+	size, err := LoadBinaryChunkInt(r, header)
+	if err != nil {
+		return UpvalueList{}, fmt.Errorf("failed to load size for a upvalue list: %w", err)
+	}
+	upvalues.Size = size
+
+	list := make([]BinaryChunkString, size)
+	for i := 0; i < int(size); i++ {
+		upvalue, err := LoadBinaryChunkString(r, header)
+		if err != nil {
+			return UpvalueList{}, fmt.Errorf("failed to load a upvalue (ind=%d): %w", i, err)
+		}
+
+		list[i] = upvalue
+	}
+	upvalues.Upvalues = list
+
+	return upvalues, nil
 }

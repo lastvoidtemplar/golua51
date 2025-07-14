@@ -86,11 +86,11 @@ type BinaryChunkLocal struct {
 }
 
 type LocalList struct {
-	Size                int64 // int
-	SourceLinePositions []BinaryChunkLocal
+	Size   int64 // int
+	Locals []BinaryChunkLocal
 }
 
 type UpvalueList struct {
-	Size                int64 // int
-	SourceLinePositions []BinaryChunkString
+	Size     int64 // int
+	Upvalues []BinaryChunkString
 }

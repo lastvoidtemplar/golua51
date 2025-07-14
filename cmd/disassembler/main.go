@@ -75,6 +75,15 @@ func PrintBinaryChunkHeaderFunctionBlock(functionBlock BinaryChunkFunctionBlock,
 	pos = PrintInstructionList(functionBlock.InstructionList, header, pos)
 	pos = PrintConstantList(functionBlock.ConstantList, header, pos)
 	pos = PrintFunctionPrototypeList(functionBlock.FunctionPrototypeList, header, pos, functionLevel)
+	pos = PrintSourceLinePositionList(functionBlock.SourceLinePositionList, header, pos)
+	pos = PrintLocalList(functionBlock.LocalList, header, pos)
+	pos = PrintUpvalueList(functionBlock.UpvalueList, header, pos)
+	fmt.Println("\t\t\t\t** end of function **")
+
+	if functionLevel > 1 {
+		fmt.Println()
+	}
+
 	return pos
 }
 
@@ -270,6 +279,41 @@ func PrintFunctionPrototypeList(functionBlocks FunctionPrototypeList, header Bin
 	for i, v := range functionBlocks.FunctionPrototypes {
 		fmt.Println()
 		pos = PrintBinaryChunkHeaderFunctionBlock(v, header, pos, functionLevel+1, i)
+	}
+	return pos
+}
+
+func PrintSourceLinePositionList(lines SourceLinePositionList, header BinaryChunkHeader, pos int) int {
+	fmt.Println("\t\t\t\t* lines:")
+	pos = PrintBinaryChunkInt(lines.Size, fmt.Sprintf("sizelineinfo (%d)", lines.Size), header, pos)
+	fmt.Println("\t\t\t\t[pc] (line)")
+
+	for i, v := range lines.SourceLinePositions {
+		pos = PrintBinaryChunkInt(v, fmt.Sprintf("[%d] (%d)", i+1, v), header, pos)
+	}
+	return pos
+}
+
+func PrintLocalList(locals LocalList, header BinaryChunkHeader, pos int) int {
+	fmt.Println("\t\t\t\t* locals:")
+	pos = PrintBinaryChunkInt(locals.Size, fmt.Sprintf("sizelocvars (%d)", locals.Size), header, pos)
+
+	for i, v := range locals.Locals {
+		pos = PrintBinaryChunkString(v.VariableName, header, pos)
+		fmt.Printf("\t\t\t\tlocal [%d]: %s\n", i, string(v.VariableName.Data))
+		pos = PrintBinaryChunkInt(v.StartVariableScope, fmt.Sprintf(" startpc (%d)", v.StartVariableScope), header, pos)
+		pos = PrintBinaryChunkInt(v.EndVariableScope, fmt.Sprintf(" endpc (%d)", v.EndVariableScope), header, pos)
+	}
+	return pos
+}
+
+func PrintUpvalueList(upvalues UpvalueList, header BinaryChunkHeader, pos int) int {
+	fmt.Println("\t\t\t\t* upvalues:")
+	pos = PrintBinaryChunkInt(upvalues.Size, fmt.Sprintf("sizelineinfo (%d)", upvalues.Size), header, pos)
+
+	for i, v := range upvalues.Upvalues {
+		pos = PrintBinaryChunkString(v, header, pos)
+		fmt.Printf("\t\t\t\tupvalue [%d]: %s\n", i, string(v.Data))
 	}
 	return pos
 }
